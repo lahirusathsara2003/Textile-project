@@ -122,7 +122,61 @@ public class ReadyMadeOrderSeviceImpl implements ReadyMadeOrderService {
     @Override
     @Transactional
     public void updateReadyMadeOrderById(ReadyMadeOrder readyMadeOrder) {
-        throw new UnsupportedOperationException("Implement update mapping as needed");
+        if (readyMadeOrder == null || readyMadeOrder.getReadyMadeOrderId() == null) {
+            throw new IllegalArgumentException("Ready-made order id is required");
+        }
+
+        ReadyMadeOrderEntity existing = orderRepo.findById(readyMadeOrder.getReadyMadeOrderId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Ready-made order not found with id: " + readyMadeOrder.getReadyMadeOrderId()));
+
+        existing.setCustomerId(readyMadeOrder.getCustomerId());
+        existing.setCustomerName(readyMadeOrder.getCustomerName());
+        existing.setDate(readyMadeOrder.getDate());
+
+        List<ReadyMadeOrderItemEntity> currentItems = itemRepo.findByOrder_ReadyMadeOrderId(existing.getReadyMadeOrderId());
+        if (currentItems != null && !currentItems.isEmpty()) {
+            itemRepo.deleteAll(currentItems);
+        }
+
+        List<ReadyMadeOrderItemEntity> updatedItems = new ArrayList<>();
+        double subtotal = 0d;
+
+        if (readyMadeOrder.getItems() != null) {
+            for (ReadyMadeOrderItem item : readyMadeOrder.getItems()) {
+                ReadyMadeOrderItemEntity entityItem = new ReadyMadeOrderItemEntity();
+                entityItem.setProductId(item.getProductId());
+                entityItem.setItemName(item.getItemName());
+                entityItem.setItemPrice(safe(item.getItemPrice()));
+                entityItem.setQuantity(item.getQuantity());
+
+                int quantity = item.getQuantity() == null ? 0 : item.getQuantity();
+                double lineTotal = round2(safe(item.getItemPrice()) * quantity);
+                entityItem.setLineTotal(lineTotal);
+                entityItem.setOrder(existing);
+
+                updatedItems.add(entityItem);
+                subtotal += lineTotal;
+            }
+        }
+
+        subtotal = round2(subtotal);
+        double discountPercent = readyMadeOrder.getDiscountPercent() == null ? 0d : readyMadeOrder.getDiscountPercent();
+        double discountAmount = readyMadeOrder.getDiscountAmount() == null
+                ? round2(subtotal * (discountPercent / 100.0))
+                : safe(readyMadeOrder.getDiscountAmount());
+        double totalAmount = readyMadeOrder.getTotalAmount() == null
+                ? round2(subtotal - discountAmount)
+                : safe(readyMadeOrder.getTotalAmount());
+
+        existing.setSubtotal(subtotal);
+        existing.setDiscountPercent(discountPercent);
+        existing.setDiscountAmount(discountAmount);
+        existing.setTotalAmount(totalAmount);
+        existing.setItems(updatedItems);
+
+        orderRepo.save(existing);
+        itemRepo.saveAll(updatedItems);
     }
 
     private ReadyMadeOrder toDTO(ReadyMadeOrderEntity e) {
